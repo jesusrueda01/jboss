@@ -1,0 +1,197 @@
+= Manual rápido de instalación de JBoss EAP en CNR
+Flux IT (C)
+
+toc::[]
+
+== Preparación
+Crear directorio `/opt/jboss/installers` para contener los instaladores de los productos a utilizar.
+
+`mkdir -p /opt/jboss/installers/`
+
+Si es necesario copiar los instaladores desde otro host de la red, usar el siguiente comando
+`scp root@192.168.3.132:/opt/jboss/installers/* .`
+
+== Instalación de JDK
+
+Partiendo de una instalación distribuida en un tarball.
+
+. Descomprimir con `tar xvfz jdk-7u79-linux-x64.tar.gz`
+. Crear directorio destino en `mkdir -p /usr/lib/jvm/`
+. Mover la instalación al destino `mv jdk1.7.0_79/ /usr/lib/jvm/`
+. Settear como configuración por defecto con
+.. `update-alternatives --install "/usr/bin/java" "java" "/usr/lib/jvm/jdk1.7.0_79/bin/java" 1`
+.. `update-alternatives --install "/usr/bin/javac" "javac" "/usr/lib/jvm/jdk1.7.0_79/bin/javac" 1`
+. Testear con  `java -version`
+Resultado
+```
+[root@NodoEAPEWS-1P ~]# java -version
+java version "1.7.0_79"
+Java(TM) SE Runtime Environment (build 1.7.0_79-b15)
+Java HotSpot(TM) 64-Bit Server VM (build 24.79-b02, mixed mode)
+```
+
+== Instalación de JBoss EAP
+=== Despliegue
+Partiendo de una instalación distribuida en un zip.
+
+1. Descomprimir con `unzip jboss-eap-6.4.0.zip`
+1. Crear directorio destino con `mkdir -p /opt/jboss/products/`
+1. Mover la instalación al destino `mv jboss-eap-6.4 ../products/`
+1. Probar que inicia sin errores. Desde  `jboss-eap-6.4/bin/` correr `./standalone.sh`
+1. Detener el servidor.
+
+=== Instalación de Patches
+1. Descargar los patches actuales, desde `/opt/jboss/`
+```
+mkdir patches
+cd patches/
+wget https://access.redhat.com/cspdownload/f975efde6d42556b7af0281c21834c2e/55de134d/JBEAP-6.4.1/jboss-eap-6.4.1-patch.zip
+wget https://access.redhat.com/cspdownload/afafc7ffe2f03f6aa7f87c892a5b5789/55de1381/JBEAP-6.4.2/jboss-eap-6.4.2-patch.zip
+wget https://access.redhat.com/cspdownload/d14e012c74d0d055a1e1292ab7ccb0c1/55de13ee/JBEAP-6.4.3/jboss-eap-6.4.3-patch.zip
+```
+_los links pueden expirar, descargar desde http://access.redhat.com_
+
+[start=2]
+1. Desde `/opt/jboss/products/jboss-eap-6.4/` iniciar el servidor con `bin/standalone.sh &disown`
+1. Usando `jboss-cli.sh` instalar los patches:
+
+```
+[root@NodoEAPEWS-1P jboss-eap-6.4]# bin/jboss-cli.sh
+You are disconnected at the moment. Type 'connect' to connect to the server or 'help' for the list of supported commands.
+[disconnected /] connect
+[standalone@localhost:9999 /] patch apply /opt/jboss/patches/jboss-eap-6.4.X-patch.zip
+```
+_reemplazar X con el índice de patch descargado_
+[start=4]
+1. Comprobar que el patch fue aplicado
+```
+[root@NodoEAPEWS-1P jboss-eap-6.4]# cat version.txt
+Red Hat JBoss Enterprise Application Platform - Version 6.4.3.GA
+```
+De ser necesario reiniciar el server, desde `jboss-cli.sh` ejecutar `shutdown`.
+
+=== Creación de usuario JBoss
+
+1. Crear el grupo `jboss` con `groupadd jboss`
+1. Crear el usuario `jboss` con `useradd -s /bin/bash -g jboss jboss`
+1. Hacer al usuario `jboss` owner de todos los productos con `chown -Rf jboss.jboss /opt/jboss/` y `chown -Rf jboss.jboss /var/log/jboss-as/`
+1. Assignarle una contraseña con `passwd jboss`: valor `redhat`
+1. Agregalo a 'sudoers' con `visudo`.
+1. Buscar "%wheel" con `/%wheel` y reemplazar la línea con el siguiente contenido:
+```
+## Allows people in group wheel to run all commands
+%jboss  ALL=(ALL)       ALL
+```
+[start=7]
+1. Salir con `ESC`+`:x`
+
+
+=== Instalación como servicio
+Desde  `/opt/jboss/products/jboss-eap-6.4/bin/init.d/`
+
+1. Editar `jboss-as.conf` para incluir la configuración básica
+```
+# General configuration for the init.d scripts,
+# not necessarily for JBoss AS itself.
+
+# The username who should own the process.
+#
+JBOSS_USER=jboss
+JBOSS_HOME=/opt/jboss/products/jboss-eap-6.4
+
+# The amount of time to wait for startup
+#
+# STARTUP_WAIT=30
+
+# The amount of time to wait for shutdown
+#
+# SHUTDOWN_WAIT=30
+
+# Location to keep the console log
+#
+JBOSS_CONSOLE_LOG=/var/log/jboss-as/console.log
+
+```
+[start=2]
+1. Crear carpeta destino con `mkdir /etc/jboss-as/`
+1. Copiar a destino `cp jboss-as.conf /etc/jboss-as/`
+1. Copiar script de inicio `cp jboss-as-standalone.sh /etc/init.d/jboss-as`
+1. Cambiar directorio a `/etc/init.d/`
+1. Agregar servicio con `chkconfig --add jboss-as`
+1. Probar el servicio con `service jboss-as stop`
+```
+Parando jboss-as:                                          [  OK  ]
+```
+[start=7]
+1. Probar el servicio con `service jboss-as start`
+```
+Starting jboss-as:                                         [  OK  ]
+```
+[start=8]
+
+=== Customización de la instalación
+Para tener centralizada la configuración de propiedades, crear un `.properties` único y referenciarlo luego en el script de inicio.
+De esta manera se evita modificar `standalone.xml` a mano para reemplazar propiedades base.
+
+1. Crear archivo de propiedades en `/opt/jboss/products/jboss-eap-6.4/standalone/configuration/`
+1. Agregar bindings
+```
+echo "jboss.bind.address.management=0.0.0.0" > cnr.properties
+echo "jboss.bind.address=0.0.0.0" >> cnr.properties
+echo "jboss.bind.address.unsecure=0.0.0.0" >> cnr.properties
+```
+[start=3]
+1. Editar el script en `/etc/init.d/jboss-as` de inicio para referir a estas propiedades
+1. Buscar la línea que empieza con `daemon --user $JBOSS_USER ...` y agregar el parámetro `-P`, quedaría así:
+```
+daemon --user $JBOSS_USER LAUNCH_JBOSS_IN_BACKGROUND=1 JBOSS_PIDFILE=$JBOSS_PIDFILE $JBOSS_SCRIPT -c $JBOSS_CONFIG -P=$JBOSS_HOME/standalone/configuration/cnr.properties > $JBOSS_CONSOLE_LOG 2>&1 &
+```
+[start=5]
+1. Reiniciar el servicio con `service jboss-as restart`
+
+Con estos cambios esta instancia de EAP debería ser accesible en el puerto 9990 (default) desde otro host.
+
+=== Crear un usuario de management
+
+Desde `/opt/jboss/products/jboss-eap-6.4/bin`
+
+1. Ejecutar `./add-user.sh `.
+1. Se ejecutará en modo interactivo el script de creación, seguir según este output:
+```
+What type of user do you wish to add?
+ a) Management User (mgmt-users.properties)
+ b) Application User (application-users.properties)
+(a): a
+
+Enter the details of the new user to add.
+Using realm 'ManagementRealm' as discovered from the existing property files.
+Username : admin
+The username 'admin' is easy to guess
+Are you sure you want to add user 'admin' yes/no? yes
+Password requirements are listed below. To modify these restrictions edit the add-user.properties configuration file.
+ - The password must not be one of the following restricted values {root, admin, administrator}
+ - The password must contain at least 8 characters, 1 alphabetic character(s), 1 digit(s), 1 non-alphanumeric symbol(s)
+ - The password must be different from the username
+Password : RedHat-2015
+Re-enter Password : RedHat-2015
+What groups do you want this user to belong to? (Please enter a comma separated list, or leave blank for none)[  ]:
+About to add user 'admin' for realm 'ManagementRealm'
+Is this correct yes/no? yes
+Added user 'admin' to file '/opt/jboss/products/jboss-eap-6.4/standalone/configuration/mgmt-users.properties'
+Added user 'admin' to file '/opt/jboss/products/jboss-eap-6.4/domain/configuration/mgmt-users.properties'
+Added user 'admin' with groups  to file '/opt/jboss/products/jboss-eap-6.4/standalone/configuration/mgmt-groups.properties'
+Added user 'admin' with groups  to file '/opt/jboss/products/jboss-eap-6.4/domain/configuration/mgmt-groups.properties'
+Is this new user going to be used for one AS process to connect to another AS process?
+e.g. for a slave host controller connecting to the master or for a Remoting connection for server to server EJB calls.
+yes/no? yes
+To represent the user add the following to the server-identities definition <secret value="UmVkSGF0LTIwMTU=" />
+```
+[start=3]
+1. Acceder al puerto `9990` del host y comprobar el login con el usuario `admin`
+
+== Clean up
+
+Para asegurar que pueden replicarse estos pasos con facilidad en otros hosts, se copian los archivos de inicio dentro del EAP
+
+1. `cp  /etc/jboss-as/jboss-as.conf /opt/jboss/products/jboss-eap-6.4/bin/init.d/`
+1. `cp  /etc/init.d/jboss-as /opt/jboss/products/jboss-eap-6.4/bin/init.d/`
